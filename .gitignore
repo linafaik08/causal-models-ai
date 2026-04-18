@@ -86,3 +86,4 @@ htmlcov/
 
 # Secrets
 secrets.yaml
+secrets/
