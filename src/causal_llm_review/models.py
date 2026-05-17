@@ -48,3 +48,22 @@ class EdgeDecision(BaseModel):
 class EdgeReviewResponse(BaseModel):
     """Top-level tool response: one decision per edge in input order."""
     decisions: list[EdgeDecision]
+
+
+class EdgePenalty(BaseModel):
+    """LLM-assessed plausibility penalty for a directed causal edge."""
+    node_from: str   = Field(description="Source variable name exactly as given")
+    node_to:   str   = Field(description="Target variable name exactly as given")
+    penalty:   float = Field(
+        description=(
+            "Penalty 0–10: 0 = very plausible, natural causal direction (no cost); "
+            "5 = uncertain, both directions possible; "
+            "10 = implausible or impossible (maximum cost)."
+        )
+    )
+    reasoning: str = Field(description="1–2 sentence explanation grounded in domain knowledge")
+
+
+class EdgePenaltyResponse(BaseModel):
+    """Bulk penalty response for all candidate directed edges."""
+    penalties: list[EdgePenalty]

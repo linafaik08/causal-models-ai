@@ -18,4 +18,9 @@ dependencies = [
     "jinja2",
     "pyyaml",
     "pydantic",
+    "notears",
+    "plotly"
 ]
+
+[tool.uv.sources]
+notears = { git = "https://github.com/xunzheng/notears" }

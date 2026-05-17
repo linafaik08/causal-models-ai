@@ -18,7 +18,7 @@ Usage
     adj_fixed = reviewer.apply_corrections(G_fci.graph, decisions, node_names)
 """
 
-from .models import EdgeInput, EdgeDecision, EdgeReviewResponse
+from .models import EdgeInput, EdgeDecision, EdgeReviewResponse, EdgePenalty, EdgePenaltyResponse
 from .graph import decode_adj_matrix
 from .adapters import LLMAdapter, AnthropicAdapter, OpenAIAdapter, GeminiAdapter
 from .reviewer import CausalGraphReviewer
@@ -36,4 +36,6 @@ __all__ = [
     "CausalGraphReviewer",
     "SYSTEM_TEMPLATE",
     "USER_TEMPLATE",
+    "EdgePenalty",
+    "EdgePenaltyResponse",
 ]
