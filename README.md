@@ -7,56 +7,45 @@
 
 ## Objective
 
-This repository explores **how Large Language Models can complement classical causal discovery algorithms**. Constraint-based methods like PC and FCI return statistically valid but often partially-oriented graphs: edges may be left undirected, mis-oriented, or spurious because the data alone cannot resolve them. LLMs, on the other hand, carry broad domain knowledge but cannot reason from raw observational data.
+This repository explores **how Large Language Models can complement classical causal discovery algorithms**. Statistical methods return graphs that the data alone cannot fully resolve — edges may be undirected, mis-oriented, or spurious. LLMs carry broad domain knowledge but cannot reason from raw observational data. The two are complementary.
 
-This first part of the series focuses on **constraint-based causal discovery** (PC, FCI) and introduces a lightweight **LLM review layer** that audits each edge of the discovered graph using domain knowledge — keeping, removing, reversing, or orienting edges with structured, auditable decisions.
+The series covers the main families of causal discovery and pairs each with an LLM integration:
+
+- **Part 1 — Constraint-based** (PC, FCI): post-hoc LLM edge review.
+- **Part 2 — Score-based, continuous optimisation, permutation-based** (GES, NOTEARS, GRaSP): LLM knowledge injected *inside* the score / loss.
 
 For a deeper dive into the concepts and implementation details, check out the full article on [The AI Practitioner](https://aipractitioner.substack.com/).
 
 ## Project Description
 
-Constraint-based causal discovery returns a **CPDAG** (PC) or **PAG** (FCI) — equivalence classes that contain edges of the form `-->`, `---`, `<->`, `o->`, `o-o`. These uncertain marks are honest about what the data can identify, but they leave the practitioner with a graph that is hard to act on.
+This project demonstrates two ways to combine [`causal-learn`](https://github.com/py-why/causal-learn) / NOTEARS with a provider-agnostic LLM layer (Anthropic, OpenAI, Gemini):
 
-This project demonstrates a two-stage workflow:
-
-1. **Statistical discovery** with [`causal-learn`](https://github.com/py-why/causal-learn) — PC with `fisherz` / `chisq` independence tests, optional background knowledge, and FCI for latent confounders.
-2. **LLM review** with a provider-agnostic adapter layer (Anthropic, OpenAI, Gemini) — every edge is reviewed in a single structured tool call and the decisions are applied back to the adjacency matrix.
-
-### Pipeline
-
-```
-┌──────────────┐   ┌──────────────┐   ┌─────────────────┐   ┌──────────────────┐
-│   Dataset    │──▶│  PC / FCI    │──▶│  decode_adj_    │──▶│  LLM Reviewer    │
-│  (Adult)     │   │ (causal-learn)│  │  matrix → edges │   │  (tool-call)     │
-└──────────────┘   └──────────────┘   └─────────────────┘   └────────┬─────────┘
-                                                                     │
-                                                            ┌────────▼─────────┐
-                                                            │ apply_corrections│
-                                                            │  → reviewed adj  │
-                                                            └──────────────────┘
-```
+1. **Post-hoc LLM review** — the discovered CPDAG/PAG is passed to the LLM edge-by-edge; each edge is kept, removed, reversed, or oriented in a structured tool call.
+2. **LLM-in-the-score** — the LLM produces a penalty matrix (or hard immutability prior) that is folded directly into the local score function used by GES / GRaSP, or into the NOTEARS loss. Domain knowledge then influences the graph *during* search, not after.
 
 ### LLM Review Component
 
 The `causal_llm_review` package provides:
 
-1. **`decode_adj_matrix`**: turns a `causal-learn` adjacency matrix into typed `EdgeInput` objects with explicit edge marks (`-->`, `---`, `<->`, `o->`, `o-o`).
-2. **`LLMAdapter`**: a thin abstraction over Anthropic, OpenAI, and Gemini tool/function calling so the same review pipeline runs against any provider.
-3. **`CausalGraphReviewer`**: orchestrates one structured call to the LLM with a Jinja-templated system prompt, returns one `EdgeDecision` per edge (action: `keep` / `remove` / `reverse` / `orient`, confidence, reasoning), and applies the decisions back to the adjacency matrix.
+- **`decode_adj_matrix`**: turns a `causal-learn` adjacency matrix into typed `EdgeInput` objects with explicit edge marks (`-->`, `---`, `<->`, `o->`, `o-o`).
+- **`LLMAdapter`**: a thin abstraction over Anthropic, OpenAI, and Gemini tool/function calling so the same pipeline runs against any provider.
+- **`CausalGraphReviewer`**: one structured call per graph that returns an `EdgeDecision` per edge (`keep` / `remove` / `reverse` / `orient`, confidence, reasoning) and applies the decisions back to the adjacency matrix.
+- **`EdgePenaltyResponse`**: structured penalty-matrix output used to inject LLM knowledge into score / loss functions.
 
-Decisions are structured via Pydantic schemas and forced through provider tool-use, so the output is always machine-readable and auditable.
+All outputs are Pydantic-typed and forced through provider tool-use, so they are machine-readable and auditable.
 
 ### Code Structure
 
 ```
 notebooks/
-└── constraint_based_algorithms.ipynb   # End-to-end walkthrough on the Adult dataset
+├── constraint_based_algorithms.ipynb   # PC / FCI + post-hoc LLM edge review
+└── score_based_algorithms.ipynb        # GES / NOTEARS / GRaSP + LLM-in-the-score
 
 src/causal_llm_review/
-├── models.py        # Pydantic schemas: EdgeInput, EdgeDecision, EdgeReviewResponse
+├── models.py        # Pydantic schemas: EdgeInput, EdgeDecision, EdgePenaltyResponse
 ├── graph.py         # decode_adj_matrix: causal-learn matrix → typed edge list
 ├── adapters.py      # LLMAdapter + Anthropic / OpenAI / Gemini implementations
-├── prompts.py       # Jinja2 system + user templates for the review call
+├── prompts.py       # Jinja2 system + user templates
 └── reviewer.py      # CausalGraphReviewer: review() + apply_corrections()
 
 data/
@@ -73,6 +62,7 @@ Main libraries:
 ```
 # Causal discovery
 causal-learn
+notears
 pydot
 
 # Data & ML
@@ -139,35 +129,29 @@ The adapters fall back to the `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, and `GOOGLE
 
 ### Running the Project
 
-**Start with the notebook**: open the end-to-end walkthrough on the Adult Census Income dataset:
-```
-notebooks/constraint_based_algorithms.ipynb
-```
+Two end-to-end notebooks on the Adult Census Income dataset:
 
-It covers:
-- Loading and preprocessing the dataset
-- Running **PC** with `fisherz` (continuous variables)
-- Running **PC** with `chisq` (full discretized dataset)
-- Running **PC with background knowledge** to fix immutable variables (`sex`, `age`)
-- Running **FCI** to allow for latent confounders
-- Running the **LLM review** on the FCI output and applying corrections
+**`notebooks/constraint_based_algorithms.ipynb`** — PC (`fisherz` / `chisq`), PC with background knowledge on immutable variables, FCI for latent confounders, and a post-hoc LLM review applied to the FCI output.
+
+**`notebooks/score_based_algorithms.ipynb`** — GES (BIC / BDeu / kernel `CV_general`), NOTEARS continuous optimisation, and GRaSP permutation search. The second half shows how to modify the score function itself: an immutability prior, and an LLM-derived penalty matrix folded into GRaSP's BDeu score and NOTEARS' loss.
 
 
 ### Key Features Demonstrated
 
-- **Constraint-Based Discovery**: PC and FCI from `causal-learn` with `fisherz` and `chisq` CI tests
-- **Background Knowledge**: forbidding incoming edges on immutable variables (`sex`, `age`)
-- **Latent Confounder Handling**: FCI output with `<->` and `o->` edge marks
-- **Provider-Agnostic LLM Layer**: a single review pipeline that runs against Anthropic, OpenAI, or Gemini
-- **Structured LLM Output**: Pydantic schemas + tool/function calling for auditable, machine-readable decisions
-- **Edge-by-Edge Auditability**: every decision carries an action, confidence level, and reasoning grounded in domain knowledge
-- **Round-Trip with `causal-learn`**: decisions are applied back to the original adjacency matrix without mutating it
+- **Discovery algorithms**: PC, FCI (constraint-based); GES with BIC / BDeu / kernel scores (score-based); NOTEARS (continuous optimisation); GRaSP (permutation-based)
+- **Two LLM integration patterns**: post-hoc edge review *and* LLM-derived penalty matrices injected into the score / loss
+- **Background knowledge**: hard immutability constraints applied either via `BackgroundKnowledge` (PC/FCI) or by penalising forbidden parents inside a custom local score (GES/GRaSP)
+- **Provider-agnostic LLM layer**: same pipeline runs against Anthropic, OpenAI, or Gemini
+- **Structured LLM output**: Pydantic schemas + tool/function calling for auditable, machine-readable decisions and penalties
+- **Round-trip with `causal-learn`**: decisions and custom scores plug into the original adjacency / search loop without mutating internals
 
 
 ## Resources
 
 - **causal-learn Documentation**: https://causal-learn.readthedocs.io/
 - **PC & FCI Algorithms (overview)**: https://causal-learn.readthedocs.io/en/latest/search_methods_index/Constraint-based%20causal%20discovery%20methods/index.html
+- **GES / GRaSP (score- and permutation-based)**: https://causal-learn.readthedocs.io/en/latest/search_methods_index/Score-based%20causal%20discovery%20methods/index.html
+- **NOTEARS**: https://github.com/xunzheng/notears
 - **Adult Census Income Dataset**: https://archive.ics.uci.edu/dataset/2/adult
 - **uv Package Manager**: https://github.com/astral-sh/uv
 - **Anthropic Tool Use**: https://docs.anthropic.com/en/docs/build-with-claude/tool-use
